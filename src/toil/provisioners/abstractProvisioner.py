@@ -525,11 +525,7 @@ class AbstractProvisioner(ABC):
                 }
 
             # Serialize as JSON
-            result = json.dumps(config, indent=4)
-            with open("/Users/wlgao/code/GI/config.json", "w") as f:
-                f.write(result)
-
-            return result
+            return json.dumps(config)
 
     def getBaseInstanceConfiguration(self) -> InstanceConfiguration:
         """
