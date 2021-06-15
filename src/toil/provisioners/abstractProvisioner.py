@@ -21,7 +21,7 @@ import json
 from abc import ABC, abstractmethod
 from datauri import DataURI
 from functools import total_ordering
-from typing import Dict, Optional, Set
+from typing import List, Dict, Tuple, Optional, Set
 
 from toil import applianceSelf, customDockerInitCmd, customInitCmd
 from toil.provisioners import ClusterTypeNotSupportedException
@@ -29,7 +29,6 @@ from toil.provisioners.node import Node
 
 a_short_time = 5
 logger = logging.getLogger(__name__)
-
 
 class ManagedNodesNotSupportedException(RuntimeError):
     """
@@ -41,7 +40,6 @@ class ManagedNodesNotSupportedException(RuntimeError):
     are available from a provisioner.
     """
     pass
-
 
 @total_ordering
 class Shape(object):
@@ -55,7 +53,6 @@ class Shape(object):
     The memory and disk attributes store the number of bytes required by a job (or provided by a
     node) in RAM or on disk (SSD or HDD), respectively.
     """
-
     def __init__(self, wallTime, memory, cores, disk, preemptable):
         self.wallTime = wallTime
         self.memory = memory
@@ -239,8 +236,8 @@ class AbstractProvisioner(ABC):
         # To work locally or remotely we need to do all our setup work as one
         # big bash -c
         command = ['bash', '-c', ('set -e; if [ ! -e /root/.sshSuccess ] ; '
-                                  'then ssh-keygen -f /root/.ssh/id_rsa -t rsa -N ""; '
-                                  'touch /root/.sshSuccess; fi; chmod 700 /root/.ssh;')]
+                    'then ssh-keygen -f /root/.ssh/id_rsa -t rsa -N ""; '
+                    'touch /root/.sshSuccess; fi; chmod 700 /root/.ssh;')]
 
         if leader is None:
             # Run locally
@@ -262,7 +259,7 @@ class AbstractProvisioner(ABC):
                     leaderPublicKey = f.read()
 
         # Drop the key type and keep just the key data
-        leaderPublicKey = leaderPublicKey.split(' ')[1]
+        leaderPublicKey=leaderPublicKey.split(' ')[1]
 
         # confirm it really is an RSA public key
         assert leaderPublicKey.startswith('AAAAB3NzaC1yc2E'), leaderPublicKey
@@ -303,25 +300,51 @@ class AbstractProvisioner(ABC):
         # it.
         return dict(config['DEFAULT'])
 
-    def setAutoscaledNodeTypes(self, nodeTypes):
+    def setAutoscaledNodeTypes(self, nodeTypes: List[Tuple[Set[str], Optional[float]]]):
         """
-        Set node types, shapes and spot bids. Preemptable nodes will have the form "type:spotBid".
-        :param nodeTypes: A list of node types
+        Set node types, shapes and spot bids for Toil-managed autoscaling.
+        :param nodeTypes: A list of node types, as parsed with parse_node_types.
         """
+        # This maps from an equivalence class of instance names to a spot bid.
         self._spotBidsMap = {}
-        self.nodeShapes = []
-        self.nodeTypes = []
-        for nodeTypeStr in nodeTypes:
-            nodeBidTuple = nodeTypeStr.split(":")
-            if len(nodeBidTuple) == 2:
-                # This is a preemptable node type, with a spot bid
-                nodeType, bid = nodeBidTuple
-                self.nodeTypes.append(nodeType)
-                self.nodeShapes.append(self.getNodeShape(nodeType, preemptable=True))
-                self._spotBidsMap[nodeType] = bid
-            else:
-                self.nodeTypes.append(nodeTypeStr)
-                self.nodeShapes.append(self.getNodeShape(nodeTypeStr, preemptable=False))
+
+        # This maps from a node Shape object to the instance type that has that
+        # shape. TODO: what if multiple instance types in a cloud provider have
+        # the same shape (e.g. AMD and Intel instances)???
+        self._shape_to_instance_type = {}
+
+        for node_type in nodeTypes:
+            preemptable = node_type[1] is not None
+            if preemptable:
+                # Record the spot bid for the whole equivalence class
+                self._spotBidsMap[frozenset(node_type[0])] = node_type[1]
+            for instance_type_name in node_type[0]:
+                # Record the instance shape and associated type.
+                shape = self.getNodeShape(instance_type_name, preemptable)
+                self._shape_to_instance_type[shape] = instance_type_name
+
+    def hasAutoscaledNodeTypes(self) -> bool:
+        """
+        Check if node types have been configured on the provisioner (via
+        setAutoscaledNodeTypes).
+
+        :returns: True if node types are configured for autoscaling, and false
+                  otherwise.
+        """
+        return len(self.getAutoscaledInstanceShapes()) > 0
+
+    def getAutoscaledInstanceShapes(self) -> Dict[Shape, str]:
+        """
+        Get all the node shapes and their named instance types that the Toil
+        autoscaler should manage.
+        """
+
+        if hasattr(self, '_shape_to_instance_type'):
+            # We have had Toil-managed autoscaling set up
+            return dict(self._shape_to_instance_type)
+        else:
+            # Nobody has called setAutoscaledNodeTypes yet, so nothing is to be autoscaled.
+            return {}
 
     @staticmethod
     def retryPredicate(e):
@@ -351,7 +374,7 @@ class AbstractProvisioner(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def addNodes(self, nodeType, numNodes, preemptable, spotBid=None):
+    def addNodes(self, nodeTypes: Set[str], numNodes, preemptable, spotBid=None):
         """
         Used to add worker nodes to the cluster
 
@@ -362,7 +385,7 @@ class AbstractProvisioner(ABC):
         """
         raise NotImplementedError
 
-    def addManagedNodes(self, nodeType, minNodes, maxNodes, preemptable, spotBid=None) -> None:
+    def addManagedNodes(self, nodeTypes: Set[str], minNodes, maxNodes, preemptable, spotBid=None) -> None:
         """
         Add a group of managed nodes of the given type, up to the given maximum.
         The nodes will automatically be launched and termianted depending on cluster load.
@@ -396,25 +419,26 @@ class AbstractProvisioner(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def getProvisionedWorkers(self, nodeType, preemptable):
+    def getProvisionedWorkers(self, instance_type: Optional[str] = None, preemptable: Optional[bool] = None):
         """
-        Gets all nodes of the given preemptability from the provisioner.
-        Includes both static and autoscaled nodes.
+        Gets all nodes, optionally of the given instance type or
+        preemptability, from the provisioner. Includes both static and
+        autoscaled nodes.
 
-        :param preemptable: Boolean value indicating whether to return preemptable nodes or
-           non-preemptable nodes
+        :param preemptable: Boolean value to restrict to preemptable
+               nodes or non-preemptable nodes
         :return: list of Node objects
         """
         raise NotImplementedError
 
     @abstractmethod
-    def getNodeShape(self, nodeType=None, preemptable=False):
+    def getNodeShape(self, instance_type: str, preemptable=False):
         """
         The shape of a preemptable or non-preemptable node managed by this provisioner. The node
         shape defines key properties of a machine, such as its number of cores or the time
         between billing intervals.
 
-        :param str nodeType: Node type name to return the shape of.
+        :param str instance_type: Instance type name to return the shape of.
 
         :rtype: Shape
         """
@@ -530,44 +554,60 @@ class AbstractProvisioner(ABC):
             #!/bin/bash
             set -x
             ephemeral_count=0
-            drives=""
-            directories="toil mesos docker cwl"
+            drives=()
+            directories=(toil mesos docker kubelet cwl)
             for drive in /dev/xvd{a..z} /dev/nvme{0..26}n1; do
-                echo checking for $drive
+                echo "checking for ${drive}"
                 if [ -b $drive ]; then
-                    echo found it
-                    if mount | grep $drive; then
+                    echo "found it"
+                    while [ "$(readlink -f "${drive}")" != "${drive}" ] ; do
+                        drive="$(readlink -f "${drive}")"
+                        echo "was a symlink to ${drive}"
+                    done
+                    seen=0
+                    for other_drive in "${drives[@]}" ; do
+                        if [ "${other_drive}" == "${drive}" ] ; then
+                            seen=1
+                            break
+                        fi
+                    done
+                    if (( "${seen}" == "1" )) ; then
+                        echo "already discovered via another name"
+                        continue
+                    fi
+                    if mount | grep "^${drive}"; then
                         echo "already mounted, likely a root device"
                     else
                         ephemeral_count=$((ephemeral_count + 1 ))
-                        drives="$drives $drive"
-                        echo increased ephemeral count by one
+                        drives+=("${drive}")
+                        echo "increased ephemeral count by one"
                     fi
                 fi
             done
             if (("$ephemeral_count" == "0" )); then
-                echo no ephemeral drive
-                for directory in $directories; do
+                echo "no ephemeral drive"
+                for directory in "${directories[@]}"; do
                     sudo mkdir -p /var/lib/$directory
                 done
                 exit 0
             fi
             sudo mkdir /mnt/ephemeral
             if (("$ephemeral_count" == "1" )); then
-                echo one ephemeral drive to mount
-                sudo mkfs.ext4 -F $drives
-                sudo mount $drives /mnt/ephemeral
+                echo "one ephemeral drive to mount"
+                sudo mkfs.ext4 -F "${drives[@]}"
+                sudo mount "${drives[@]}" /mnt/ephemeral
             fi
             if (("$ephemeral_count" > "1" )); then
-                echo multiple drives
-                for drive in $drives; do
-                    dd if=/dev/zero of=$drive bs=4096 count=1024
+                echo "multiple drives"
+                for drive in "${drives[@]}"; do
+                    sudo dd if=/dev/zero of=$drive bs=4096 count=1024
                 done
-                sudo mdadm --create -f --verbose /dev/md0 --level=0 --raid-devices=$ephemeral_count $drives # determine force flag
+                # determine force flag
+                sudo mdadm --create -f --verbose /dev/md0 --level=0 --raid-devices=$ephemeral_count "${drives[@]}"
                 sudo mkfs.ext4 -F /dev/md0
                 sudo mount /dev/md0 /mnt/ephemeral
             fi
-            for directory in $directories; do
+            for directory in "${directories[@]}"; do
                 sudo mkdir -p /mnt/ephemeral/var/lib/$directory
                 sudo mkdir -p /var/lib/$directory
                 sudo mount --bind /mnt/ephemeral/var/lib/$directory /var/lib/$directory
@@ -641,7 +681,7 @@ class AbstractProvisioner(ABC):
             elif role == 'worker':
                 entryPoint = 'mesos-agent'
                 entryPointArgs = MESOS_LOG_DIR + WORKER_DOCKER_ARGS.format(ip=self._leaderPrivateIP,
-                                                                           preemptable=preemptable)
+                                                            preemptable=preemptable)
             else:
                 raise RuntimeError("Unknown role %s" % role)
         elif self.clusterType == 'kubernetes':
@@ -652,7 +692,7 @@ class AbstractProvisioner(ABC):
                 entryPointArgs = 'infinity'
             else:
                 raise RuntimeError('Toil service not needed for %s nodes in a %s cluster',
-                                   role, self.clusterType)
+                    role, self.clusterType)
         else:
             raise RuntimeError('Toil service not needed in a %s cluster', self.clusterType)
 
@@ -716,8 +756,7 @@ class AbstractProvisioner(ABC):
             METRICS_API_VERSION="v0.3.7",
             CLUSTER_NAME=self.clusterName,
             # YAML line that tells the Kubelet to use a cloud provider, if we need one.
-            CLOUD_PROVIDER_SPEC=(
-                        'cloud-provider: ' + self.getKubernetesCloudProvider()) if self.getKubernetesCloudProvider() else ''
+            CLOUD_PROVIDER_SPEC=('cloud-provider: ' + self.getKubernetesCloudProvider()) if self.getKubernetesCloudProvider() else ''
         )
 
     def addKubernetesServices(self, config: InstanceConfiguration):
@@ -802,6 +841,7 @@ class AbstractProvisioner(ABC):
         # Now we should have the kubeadm command, and the bootlooping kubelet
         # waiting for kubeadm to configure it.
 
+
     def getKubernetesAutoscalerSetupCommands(self, values: Dict[str, str]) -> str:
         """
         Return Bash commands that set up the Kubernetes cluster autoscaler for
@@ -835,8 +875,29 @@ class AbstractProvisioner(ABC):
 
         values = self.getKubernetesValues()
 
-        # Main kubeadm cluster configuration
-        config.addFile("/home/core/kubernetes-leader.yml", mode=644, contents=textwrap.dedent('''\
+        # Customize scheduler to pack jobs into as few nodes as possible
+        # See: https://kubernetes.io/docs/reference/scheduling/config/#profiles
+        config.addFile("/home/core/scheduler-config.yml", mode=644, contents=textwrap.dedent('''\
+            apiVersion: kubescheduler.config.k8s.io/v1beta1
+            kind: KubeSchedulerConfiguration
+            clientConnection:
+              kubeconfig: /etc/kubernetes/scheduler.conf
+            profiles:
+              - schedulerName: default-scheduler
+                plugins:
+                  score:
+                    disabled:
+                    - name: NodeResourcesLeastAllocated
+                    enabled:
+                    - name: NodeResourcesMostAllocated
+                      weight: 1
+            '''.format(**values)))
+
+        # Main kubeadm cluster configuration.
+        # Make sure to mount the scheduler config where the scheduler can see
+        # it, which is undocumented but inferred from
+        # https://pkg.go.dev/k8s.io/kubernetes@v1.21.0/cmd/kubeadm/app/apis/kubeadm#ControlPlaneComponent
+        config.addFile("/home/core/kubernetes-leader.yml", permissions="0644", content=textwrap.dedent('''\
             apiVersion: kubeadm.k8s.io/v1beta2
             kind: InitConfiguration
             nodeRegistration:
