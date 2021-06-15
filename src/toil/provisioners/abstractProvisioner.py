@@ -19,7 +19,8 @@ import tempfile
 import textwrap
 import json
 from abc import ABC, abstractmethod
-from datauri import DataURI
+from urllib.parse import quote
+
 from functools import total_ordering
 from typing import List, Dict, Tuple, Optional, Set
 
@@ -473,16 +474,14 @@ class AbstractProvisioner(ABC):
             Make a file on the instance with the given owner, mode, and contents.
             """
 
-            contents = DataURI.make('text/plain', charset='us-ascii', base64=False, data=contents)
-            # contents = f"data:,{quote(bytes(contents, 'utf-8'))}"
+            contents = 'data:,' + quote(contents.encode('utf-8'))
 
             self.files.append({'path': path, 'filesystem': filesystem, 'mode': mode, 'contents': {'source': contents}})
 
         def addUnit(self, name: str, enabled: bool = True, contents: str = ''):
             """
             Make a systemd unit on the instance with the given name (including
-            .service), and content, and apply the given command to it (default:
-            'start'). Units will be enabled by default.
+            .service), and content. Units will be enabled by default.
 
             Unit logs can be investigated with:
                 systemctl status whatever.service
@@ -649,6 +648,9 @@ class AbstractProvisioner(ABC):
                 --path.procfs /host/proc \\
                 --path.sysfs /host/sys \\
                 --collector.filesystem.ignored-mount-points ^/(sys|proc|dev|host|etc)($|/)
+            
+            [Install]
+            WantedBy=multi-user.target
             '''))
 
     def addToilService(self, config: InstanceConfiguration, role: str, keyPath: str = None, preemptable: bool = False):
@@ -681,7 +683,7 @@ class AbstractProvisioner(ABC):
             elif role == 'worker':
                 entryPoint = 'mesos-agent'
                 entryPointArgs = MESOS_LOG_DIR + WORKER_DOCKER_ARGS.format(ip=self._leaderPrivateIP,
-                                                            preemptable=preemptable)
+                                                                           preemptable=preemptable)
             else:
                 raise RuntimeError("Unknown role %s" % role)
         elif self.clusterType == 'kubernetes':
@@ -692,7 +694,7 @@ class AbstractProvisioner(ABC):
                 entryPointArgs = 'infinity'
             else:
                 raise RuntimeError('Toil service not needed for %s nodes in a %s cluster',
-                    role, self.clusterType)
+                                   role, self.clusterType)
         else:
             raise RuntimeError('Toil service not needed in a %s cluster', self.clusterType)
 
@@ -730,6 +732,9 @@ class AbstractProvisioner(ABC):
                 --name=toil_{role} \\
                 {applianceSelf()} \\
                 {entryPointArgs}
+
+            [Install]
+            WantedBy=multi-user.target
             '''))
 
     def getKubernetesValues(self):
@@ -897,7 +902,7 @@ class AbstractProvisioner(ABC):
         # Make sure to mount the scheduler config where the scheduler can see
         # it, which is undocumented but inferred from
         # https://pkg.go.dev/k8s.io/kubernetes@v1.21.0/cmd/kubeadm/app/apis/kubeadm#ControlPlaneComponent
-        config.addFile("/home/core/kubernetes-leader.yml", permissions="0644", content=textwrap.dedent('''\
+        config.addFile("/home/core/kubernetes-leader.yml", mode=644, contents=textwrap.dedent('''\
             apiVersion: kubeadm.k8s.io/v1beta2
             kind: InitConfiguration
             nodeRegistration:
