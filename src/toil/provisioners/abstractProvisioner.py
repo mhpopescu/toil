@@ -30,6 +30,7 @@ from toil.provisioners.node import Node
 a_short_time = 5
 logger = logging.getLogger(__name__)
 
+
 class ManagedNodesNotSupportedException(RuntimeError):
     """
     Raised when attempting to add managed nodes (which autoscale up and down by
@@ -40,6 +41,7 @@ class ManagedNodesNotSupportedException(RuntimeError):
     are available from a provisioner.
     """
     pass
+
 
 @total_ordering
 class Shape(object):
@@ -53,6 +55,7 @@ class Shape(object):
     The memory and disk attributes store the number of bytes required by a job (or provided by a
     node) in RAM or on disk (SSD or HDD), respectively.
     """
+
     def __init__(self, wallTime, memory, cores, disk, preemptable):
         self.wallTime = wallTime
         self.memory = memory
@@ -236,8 +239,8 @@ class AbstractProvisioner(ABC):
         # To work locally or remotely we need to do all our setup work as one
         # big bash -c
         command = ['bash', '-c', ('set -e; if [ ! -e /root/.sshSuccess ] ; '
-                    'then ssh-keygen -f /root/.ssh/id_rsa -t rsa -N ""; '
-                    'touch /root/.sshSuccess; fi; chmod 700 /root/.ssh;')]
+                                  'then ssh-keygen -f /root/.ssh/id_rsa -t rsa -N ""; '
+                                  'touch /root/.sshSuccess; fi; chmod 700 /root/.ssh;')]
 
         if leader is None:
             # Run locally
@@ -259,7 +262,7 @@ class AbstractProvisioner(ABC):
                     leaderPublicKey = f.read()
 
         # Drop the key type and keep just the key data
-        leaderPublicKey=leaderPublicKey.split(' ')[1]
+        leaderPublicKey = leaderPublicKey.split(' ')[1]
 
         # confirm it really is an RSA public key
         assert leaderPublicKey.startswith('AAAAB3NzaC1yc2E'), leaderPublicKey
@@ -359,7 +362,6 @@ class AbstractProvisioner(ABC):
         """
         raise NotImplementedError
 
-
     def addManagedNodes(self, nodeType, minNodes, maxNodes, preemptable, spotBid=None) -> None:
         """
         Add a group of managed nodes of the given type, up to the given maximum.
@@ -427,7 +429,6 @@ class AbstractProvisioner(ABC):
         """
         raise NotImplementedError
 
-
     class InstanceConfiguration:
         """
         Allows defining the initial setup for an instance and then turning it
@@ -449,6 +450,7 @@ class AbstractProvisioner(ABC):
             """
 
             contents = DataURI.make('text/plain', charset='us-ascii', base64=False, data=contents)
+            # contents = f"data:,{quote(bytes(contents, 'utf-8'))}"
 
             self.files.append({'path': path, 'filesystem': filesystem, 'mode': mode, 'contents': {'source': contents}})
 
@@ -473,7 +475,6 @@ class AbstractProvisioner(ABC):
 
             self.sshPublicKeys.append("ssh-rsa " + keyData)
 
-
         def toIgnitionConfig(self) -> str:
             """
             Return an Ignition configuration describing the desired config.
@@ -492,15 +493,20 @@ class AbstractProvisioner(ABC):
                 }
             }
 
-            '''
             if len(self.sshPublicKeys) > 0:
                 # Add SSH keys if needed
-                config['passwd']['users']['sshAuthorizedKeys'] = self.sshPublicKeys
-            '''
+                config['passwd'] = {
+                    'users': {
+                        'sshAuthorizedKeys': self.sshPublicKeys
+                    }
+                }
 
             # Serialize as JSON
-            return json.dumps(config)
+            result = json.dumps(config, indent=4)
+            with open("/Users/wlgao/code/GI/config.json", "w") as f:
+                f.write(result)
 
+            return result
 
     def getBaseInstanceConfiguration(self) -> InstanceConfiguration:
         """
@@ -635,7 +641,7 @@ class AbstractProvisioner(ABC):
             elif role == 'worker':
                 entryPoint = 'mesos-agent'
                 entryPointArgs = MESOS_LOG_DIR + WORKER_DOCKER_ARGS.format(ip=self._leaderPrivateIP,
-                                                            preemptable=preemptable)
+                                                                           preemptable=preemptable)
             else:
                 raise RuntimeError("Unknown role %s" % role)
         elif self.clusterType == 'kubernetes':
@@ -646,7 +652,7 @@ class AbstractProvisioner(ABC):
                 entryPointArgs = 'infinity'
             else:
                 raise RuntimeError('Toil service not needed for %s nodes in a %s cluster',
-                    role, self.clusterType)
+                                   role, self.clusterType)
         else:
             raise RuntimeError('Toil service not needed in a %s cluster', self.clusterType)
 
@@ -710,7 +716,8 @@ class AbstractProvisioner(ABC):
             METRICS_API_VERSION="v0.3.7",
             CLUSTER_NAME=self.clusterName,
             # YAML line that tells the Kubelet to use a cloud provider, if we need one.
-            CLOUD_PROVIDER_SPEC=('cloud-provider: ' + self.getKubernetesCloudProvider()) if self.getKubernetesCloudProvider() else ''
+            CLOUD_PROVIDER_SPEC=(
+                        'cloud-provider: ' + self.getKubernetesCloudProvider()) if self.getKubernetesCloudProvider() else ''
         )
 
     def addKubernetesServices(self, config: InstanceConfiguration):
@@ -794,7 +801,6 @@ class AbstractProvisioner(ABC):
 
         # Now we should have the kubeadm command, and the bootlooping kubelet
         # waiting for kubeadm to configure it.
-
 
     def getKubernetesAutoscalerSetupCommands(self, values: Dict[str, str]) -> str:
         """
@@ -1056,5 +1062,3 @@ class AbstractProvisioner(ABC):
 
         # Make it into a string for Ignition
         return config.toIgnitionConfig()
-
-
