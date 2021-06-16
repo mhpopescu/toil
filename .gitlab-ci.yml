@@ -36,8 +36,8 @@ after_script:
 
 stages:
   - linting_and_dependencies
-  - basic_tests
-  - main_tests
+#  - basic_tests
+#  - main_tests
   - integration
 
 
