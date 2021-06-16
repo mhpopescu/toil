@@ -66,144 +66,144 @@ wdl_dependency_is_stand_alone:
     - make test tests=src/toil/test/wdl/toilwdlTest.py::ToilWdlIntegrationTest::testMD5sum
 
 # Python3.6
-py36_main:
-  stage: basic_tests
-  script:
-    - pwd
-    - virtualenv -p python3.6 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[all] packages=htcondor
-    - make test tests=src/toil/test/src
-    - make test tests=src/toil/test/utils
+#py36_main:
+#  stage: basic_tests
+#  script:
+#    - pwd
+#    - virtualenv -p python3.6 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[all] packages=htcondor
+#    - make test tests=src/toil/test/src
+#    - make test tests=src/toil/test/utils
 
-py36_appliance_build:
-  stage: basic_tests
-  script:
-    - pwd
-    - virtualenv -p python3.6 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && pip install pycparser && make develop extras=[all] packages='htcondor awscli'
-    # This reads GITLAB_SECRET_FILE_QUAY_CREDENTIALS
-    - python setup_gitlab_docker.py
-    - make push_docker
+#py36_appliance_build:
+#  stage: basic_tests
+#  script:
+#    - pwd
+#    - virtualenv -p python3.6 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && pip install pycparser && make develop extras=[all] packages='htcondor awscli'
+#    # This reads GITLAB_SECRET_FILE_QUAY_CREDENTIALS
+#    - python setup_gitlab_docker.py
+#    - make push_docker
 
 
 # Python3.7
-py37_batch_systems:
-  stage: main_tests
-  script:
-    - pwd
-    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[all] packages='htcondor awscli'
-    - make test tests=src/toil/test/batchSystems/batchSystemTest.py
-    - make test tests=src/toil/test/mesos/MesosDataStructuresTest.py
-
-py37_cwl_v1.0:
-  stage: main_tests
-  only: []
-  script:
-    - pwd
-    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[cwl,aws]
-    - mypy --ignore-missing-imports --no-strict-optional $(pwd)/src/toil/cwl/cwltoil.py  # make this a separate linting stage
-    - python setup_gitlab_docker.py  # login to increase the docker.io rate limit
-    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv10Test
-
-py37_cwl_v1.1:
-  stage: main_tests
-  only: []
-  script:
-    - pwd
-    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[cwl,aws]
-    - python setup_gitlab_docker.py  # login to increase the docker.io rate limit
-    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv11Test
-
-py37_cwl_v1.2:
-  stage: main_tests
-  script:
-    - pwd
-    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[cwl,aws]
-    - python setup_gitlab_docker.py  # login to increase the docker.io rate limit
-    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv12Test
-
-py37_cwl_v1.0_kubernetes:
-  stage: main_tests
-  only: []
-  script:
-    - pwd
-    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[cwl,aws,kubernetes]
-    - export TOIL_KUBERNETES_OWNER=toiltest
-    - export TOIL_AWS_SECRET_NAME=shared-s3-credentials
-    - export TOIL_KUBERNETES_HOST_PATH=/data/scratch
-    - export TOIL_WORKDIR=/var/lib/toil
-    - export SINGULARITY_CACHEDIR=/var/lib/toil/singularity-cache
-    - echo Singularity mirror is ${SINGULARITY_DOCKER_HUB_MIRROR}
-    - mkdir -p ${TOIL_WORKDIR}
-    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv10Test::test_kubernetes_cwl_conformance
-    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv10Test::test_kubernetes_cwl_conformance_with_caching
-    
-py37_cwl_v1.1_kubernetes:
-  stage: main_tests
-  only: []
-  script:
-    - pwd
-    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[cwl,aws,kubernetes]
-    - export TOIL_KUBERNETES_OWNER=toiltest
-    - export TOIL_AWS_SECRET_NAME=shared-s3-credentials
-    - export TOIL_KUBERNETES_HOST_PATH=/data/scratch
-    - export TOIL_WORKDIR=/var/lib/toil
-    - export SINGULARITY_CACHEDIR=/var/lib/toil/singularity-cache
-    - mkdir -p ${TOIL_WORKDIR}
-    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv11Test::test_kubernetes_cwl_conformance
-    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv11Test::test_kubernetes_cwl_conformance_with_caching
-    
-py37_cwl_v1.2_kubernetes:
-  stage: main_tests
-  script:
-    - pwd
-    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[cwl,aws,kubernetes]
-    - export TOIL_KUBERNETES_OWNER=toiltest
-    - export TOIL_AWS_SECRET_NAME=shared-s3-credentials
-    - export TOIL_KUBERNETES_HOST_PATH=/data/scratch
-    - export TOIL_WORKDIR=/var/lib/toil
-    - export SINGULARITY_CACHEDIR=/var/lib/toil/singularity-cache
-    - mkdir -p ${TOIL_WORKDIR}
-    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv12Test
-
-py37_wdl:
-  stage: main_tests
-  script:
-    - pwd
-    - apt update && apt install -y default-jre
-    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[all]
-    - which java &> /dev/null || { echo >&2 "Java is not installed.  Install java to run these tests."; exit 1; }
-    - make test tests=src/toil/test/wdl/toilwdlTest.py  # needs java (default-jre) to run "GATK.jar"
-    - make test tests=src/toil/test/wdl/builtinTest.py
-
-py37_jobstore_and_provisioning:
-  stage: main_tests
-  script:
-    - pwd
-    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[all] packages=htcondor
-    - make test tests=src/toil/test/jobStores/jobStoreTest.py
-    - make test tests=src/toil/test/sort/sortTest.py
-    - make test tests=src/toil/test/provisioners/aws/awsProvisionerTest.py
-    - make test tests=src/toil/test/provisioners/clusterScalerTest.py
-#    - python -m pytest --duration=0 -s -r s src/toil/test/provisioners/gceProvisionerTest.py
-# https://ucsc-ci.com/databiosphere/toil/-/jobs/38672
-# guessing decorators are masking class as function?  ^  also, abstract class is run as normal test?  should hide.
-
-py37_main:
-  stage: basic_tests
-  script:
-    - pwd
-    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[all] packages=htcondor
-    - make test tests=src/toil/test/src
-    - make test tests=src/toil/test/utils
-#    - make test tests=src/toil/test/docs/scriptsTest.py::ToilDocumentationTest::testDocker
-
-py37_appliance_build:
-  stage: basic_tests
-  script:
-    - pwd
-    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && pip install pycparser && make develop extras=[all] packages='htcondor awscli'
-    # This reads GITLAB_SECRET_FILE_QUAY_CREDENTIALS
-    - python setup_gitlab_docker.py
-    - make push_docker
+#py37_batch_systems:
+#  stage: main_tests
+#  script:
+#    - pwd
+#    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[all] packages='htcondor awscli'
+#    - make test tests=src/toil/test/batchSystems/batchSystemTest.py
+#    - make test tests=src/toil/test/mesos/MesosDataStructuresTest.py
+#
+#py37_cwl_v1.0:
+#  stage: main_tests
+#  only: []
+#  script:
+#    - pwd
+#    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[cwl,aws]
+#    - mypy --ignore-missing-imports --no-strict-optional $(pwd)/src/toil/cwl/cwltoil.py  # make this a separate linting stage
+#    - python setup_gitlab_docker.py  # login to increase the docker.io rate limit
+#    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv10Test
+#
+#py37_cwl_v1.1:
+#  stage: main_tests
+#  only: []
+#  script:
+#    - pwd
+#    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[cwl,aws]
+#    - python setup_gitlab_docker.py  # login to increase the docker.io rate limit
+#    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv11Test
+#
+#py37_cwl_v1.2:
+#  stage: main_tests
+#  script:
+#    - pwd
+#    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[cwl,aws]
+#    - python setup_gitlab_docker.py  # login to increase the docker.io rate limit
+#    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv12Test
+#
+#py37_cwl_v1.0_kubernetes:
+#  stage: main_tests
+#  only: []
+#  script:
+#    - pwd
+#    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[cwl,aws,kubernetes]
+#    - export TOIL_KUBERNETES_OWNER=toiltest
+#    - export TOIL_AWS_SECRET_NAME=shared-s3-credentials
+#    - export TOIL_KUBERNETES_HOST_PATH=/data/scratch
+#    - export TOIL_WORKDIR=/var/lib/toil
+#    - export SINGULARITY_CACHEDIR=/var/lib/toil/singularity-cache
+#    - echo Singularity mirror is ${SINGULARITY_DOCKER_HUB_MIRROR}
+#    - mkdir -p ${TOIL_WORKDIR}
+#    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv10Test::test_kubernetes_cwl_conformance
+#    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv10Test::test_kubernetes_cwl_conformance_with_caching
+#
+#py37_cwl_v1.1_kubernetes:
+#  stage: main_tests
+#  only: []
+#  script:
+#    - pwd
+#    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[cwl,aws,kubernetes]
+#    - export TOIL_KUBERNETES_OWNER=toiltest
+#    - export TOIL_AWS_SECRET_NAME=shared-s3-credentials
+#    - export TOIL_KUBERNETES_HOST_PATH=/data/scratch
+#    - export TOIL_WORKDIR=/var/lib/toil
+#    - export SINGULARITY_CACHEDIR=/var/lib/toil/singularity-cache
+#    - mkdir -p ${TOIL_WORKDIR}
+#    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv11Test::test_kubernetes_cwl_conformance
+#    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv11Test::test_kubernetes_cwl_conformance_with_caching
+#
+#py37_cwl_v1.2_kubernetes:
+#  stage: main_tests
+#  script:
+#    - pwd
+#    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[cwl,aws,kubernetes]
+#    - export TOIL_KUBERNETES_OWNER=toiltest
+#    - export TOIL_AWS_SECRET_NAME=shared-s3-credentials
+#    - export TOIL_KUBERNETES_HOST_PATH=/data/scratch
+#    - export TOIL_WORKDIR=/var/lib/toil
+#    - export SINGULARITY_CACHEDIR=/var/lib/toil/singularity-cache
+#    - mkdir -p ${TOIL_WORKDIR}
+#    - make test tests=src/toil/test/cwl/cwlTest.py::CWLv12Test
+#
+#py37_wdl:
+#  stage: main_tests
+#  script:
+#    - pwd
+#    - apt update && apt install -y default-jre
+#    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[all]
+#    - which java &> /dev/null || { echo >&2 "Java is not installed.  Install java to run these tests."; exit 1; }
+#    - make test tests=src/toil/test/wdl/toilwdlTest.py  # needs java (default-jre) to run "GATK.jar"
+#    - make test tests=src/toil/test/wdl/builtinTest.py
+#
+#py37_jobstore_and_provisioning:
+#  stage: main_tests
+#  script:
+#    - pwd
+#    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[all] packages=htcondor
+#    - make test tests=src/toil/test/jobStores/jobStoreTest.py
+#    - make test tests=src/toil/test/sort/sortTest.py
+#    - make test tests=src/toil/test/provisioners/aws/awsProvisionerTest.py
+#    - make test tests=src/toil/test/provisioners/clusterScalerTest.py
+##    - python -m pytest --duration=0 -s -r s src/toil/test/provisioners/gceProvisionerTest.py
+## https://ucsc-ci.com/databiosphere/toil/-/jobs/38672
+## guessing decorators are masking class as function?  ^  also, abstract class is run as normal test?  should hide.
+#
+#py37_main:
+#  stage: basic_tests
+#  script:
+#    - pwd
+#    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[all] packages=htcondor
+#    - make test tests=src/toil/test/src
+#    - make test tests=src/toil/test/utils
+##    - make test tests=src/toil/test/docs/scriptsTest.py::ToilDocumentationTest::testDocker
+#
+#py37_appliance_build:
+#  stage: basic_tests
+#  script:
+#    - pwd
+#    - virtualenv -p python3.7 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && pip install pycparser && make develop extras=[all] packages='htcondor awscli'
+#    # This reads GITLAB_SECRET_FILE_QUAY_CREDENTIALS
+#    - python setup_gitlab_docker.py
+#    - make push_docker
 
 py37_integration:
   stage: integration
@@ -251,24 +251,24 @@ py37_google_jobstore:
     - make test tests=src/toil/test/jobStores/jobStoreTest.py::GoogleJobStoreTest
 
 # Python3.8
-py38_main:
-  stage: basic_tests
-  script:
-    - pwd
-    - virtualenv -p python3.8 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[all] packages='htcondor awscli'
-    - make test tests=src/toil/test/src
-    - make test tests=src/toil/test/utils
-    - make test tests=src/toil/test/lib/test_ec2.py
-    - make test tests=src/toil/test/lib/test_conversions.py
-
-py38_appliance_build:
-  stage: basic_tests
-  script:
-    - pwd
-    - virtualenv -p python3.8 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && pip install pycparser && make develop extras=[all] packages='htcondor awscli'
-    # This reads GITLAB_SECRET_FILE_QUAY_CREDENTIALS
-    - python setup_gitlab_docker.py
-    - make push_docker
+#py38_main:
+#  stage: basic_tests
+#  script:
+#    - pwd
+#    - virtualenv -p python3.8 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && make develop extras=[all] packages='htcondor awscli'
+#    - make test tests=src/toil/test/src
+#    - make test tests=src/toil/test/utils
+#    - make test tests=src/toil/test/lib/test_ec2.py
+#    - make test tests=src/toil/test/lib/test_conversions.py
+#
+#py38_appliance_build:
+#  stage: basic_tests
+#  script:
+#    - pwd
+#    - virtualenv -p python3.8 venv && . venv/bin/activate && pip install -U pip wheel && make prepare && pip install pycparser && make develop extras=[all] packages='htcondor awscli'
+#    # This reads GITLAB_SECRET_FILE_QUAY_CREDENTIALS
+#    - python setup_gitlab_docker.py
+#    - make push_docker
 
 # Cactus-on-Kubernetes integration (as a script and not a pytest test)
 py37_cactus_integration:
