@@ -40,12 +40,14 @@ from typing import (
     Callable,
     Dict,
     IO,
+    Iterable,
     Iterator,
     List,
     Mapping,
     MutableMapping,
     MutableSequence,
     Optional,
+    Pattern,
     Text,
     TextIO,
     Tuple,
@@ -54,12 +56,6 @@ from typing import (
     cast,
 )
 from urllib import parse as urlparse
-
-import schema_salad.ref_resolver
-from ruamel.yaml.comments import CommentedMap
-from schema_salad import validate
-from schema_salad.schema import Names
-from schema_salad.sourceline import SourceLine
 
 import cwltool.builder
 import cwltool.command_line_tool
@@ -70,6 +66,7 @@ import cwltool.main
 import cwltool.provenance
 import cwltool.resolver
 import cwltool.stdfsaccess
+import schema_salad.ref_resolver
 from cwltool.loghandler import _logger as cwllogger
 from cwltool.loghandler import defaultStreamHandler
 from cwltool.mpi import MpiConfig
@@ -91,14 +88,21 @@ from cwltool.software_requirements import (
 from cwltool.utils import (
     CWLObjectType,
     adjustDirObjs,
+    adjustFileObjs,
     aslist,
     get_listing,
     normalizeFilesDirs,
     visit_class,
 )
+from ruamel.yaml.comments import CommentedMap
+from schema_salad import validate
+from schema_salad.schema import Names
+from schema_salad.sourceline import SourceLine
+from threading import Thread
+
 from toil.batchSystems.registry import DEFAULT_BATCH_SYSTEM
 from toil.common import Config, Toil, addOptions
-from toil.cwl.utils import download_structure, visit_cwl_class_and_reduce
+from toil.cwl.utils import download_structure, visit_top_cwl_class, visit_cwl_class_and_reduce
 from toil.fileStores import FileID
 from toil.fileStores.abstractFileStore import AbstractFileStore
 from toil.job import Job
@@ -1099,33 +1103,14 @@ class ToilFsAccess(cwltool.stdfsaccess.StdFsAccess):
             path = self._abs(path)
         return os.path.realpath(path)
 
-def write_to_pipe(
-    file_store: AbstractFileStore, pipe_name: str, file_store_id: FileID
-) -> None:
-    try:
-        with open(pipe_name, "wb") as pipe:
-            with file_store.jobStore.readFileStream(file_store_id) as fi:
-                file_store.logAccess(file_store_id)
-                chunk_sz = 1024
-                while True:
-                    data = fi.read(chunk_sz)
-                    if not data:
-                        break
-                    pipe.write(data)
-    except IOError as e:
-        # The other side of the pipe may have been closed by the
-        # reading thread, which is OK.
-        if e.errno != errno.EPIPE:
-            raise
-
 
 def toil_get_file(
     file_store: AbstractFileStore,
     index: Dict[str, str],
     existing: Dict[str, str],
     file_store_id: str,
-    streamable: bool,
-    streaming_allowed: bool,
+    streamable: bool = False,
+    streaming_allowed: bool = True,
     pipe_threads: list = None,
 ) -> str:
     """
@@ -1177,6 +1162,25 @@ def toil_get_file(
             return schema_salad.ref_resolver.file_uri(dest_path)
     elif file_store_id.startswith("toilfile:"):
         # This is a plain file with no context.
+        def write_to_pipe(
+                file_store: AbstractFileStore, pipe_name: str, file_store_id: FileID
+        ) -> None:
+            try:
+                with open(pipe_name, "wb") as pipe:
+                    with file_store.jobStore.readFileStream(file_store_id) as fi:
+                        file_store.logAccess(file_store_id)
+                        chunk_sz = 1024
+                        while True:
+                            data = fi.read(chunk_sz)
+                            if not data:
+                                break
+                            pipe.write(data)
+            except IOError as e:
+                # The other side of the pipe may have been closed by the
+                # reading thread, which is OK.
+                if e.errno != errno.EPIPE:
+                    raise
+
         if (
                 streaming_allowed
                 and streamable
@@ -1483,16 +1487,15 @@ def upload_directory(
 
     # Say that the directory location is just its dumped contents.
     # TODO: store these listings as files in the filestore instead?
-    directory_metadata["location"] = 'toildir:' + base64.urlsafe_b64encode(
-        json.dumps(directory_contents).encode('utf-8')).decode('utf-8')
+    directory_metadata["location"] = 'toildir:' + base64.urlsafe_b64encode(json.dumps(directory_contents).encode('utf-8')).decode('utf-8')
 
 
 def upload_file(
-        uploadfunc: Any,
-        fileindex: dict,
-        existing: dict,
-        file_metadata: dict,
-        skip_broken: bool = False,
+    uploadfunc: Any,
+    fileindex: dict,
+    existing: dict,
+    file_metadata: dict,
+    skip_broken: bool = False,
 ) -> None:
     """
     Update a file object so that the location is a reference to the toil file store.
@@ -1507,8 +1510,8 @@ def upload_file(
         return
 
     if (file_metadata["location"].startswith("toilfile:") or
-            file_metadata["location"].startswith("toildir:") or
-            file_metadata["location"].startswith("_:")):
+        file_metadata["location"].startswith("toildir:") or
+        file_metadata["location"].startswith("_:")):
         return
     if file_metadata["location"] in fileindex:
         file_metadata["location"] = fileindex[file_metadata["location"]]
