@@ -1932,7 +1932,7 @@ class CWLJob(Job):
         stream_output = {}
 
         def read_from_pipe(
-                file_store: AbstractFileStore, pipe_name: str
+                file_store: AbstractFileStore, pipe_name: str, output: dict
         ) -> None:
             with open(pipe_name, "rb") as pipe:
                 with file_store.writeGlobalFileStream() as (fo, file_store_id):
@@ -1947,6 +1947,9 @@ class CWLJob(Job):
                 print("sha1$%s" % checksum.hexdigest())
                 index[pipe_name] = "toilfile:" + file_store_id.pack()
                 existing[index[pipe_name]] = pipe_name
+
+                output['location'] = index[pipe_name]
+                output['checksum'] = checksum.hexdigest()
             # We are the reading thread, there should be no exception
 
         th = None
@@ -1967,10 +1970,11 @@ class CWLJob(Job):
                 if dnout and not os.path.exists(dnout):
                     os.makedirs(dnout)
                 os.mkfifo(path)
-                stream_output['output'] = {'location': 'file:///' + path}
+                # stream_output['output'] = {'location': 'file:///' + path}
+                stream_output['output'] = {}
 
                 th = ExceptionalThread(
-                    target=read_from_pipe, args=(file_store, path)
+                    target=read_from_pipe, args=(file_store, path, stream_output['output'])
                 )
                 th.start()
                 break
@@ -1988,6 +1992,12 @@ class CWLJob(Job):
 
         if th:
             th.join()
+
+        if stream_output:
+            print(stream_output)
+            output['output']['location'] = stream_output['output']['location']
+            output['output']['checksum'] = stream_output['output']['checksum']
+            print(output)
 
         ended_at = datetime.datetime.now()  # noqa F841
         if status != "success":
